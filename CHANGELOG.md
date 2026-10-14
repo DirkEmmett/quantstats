@@ -1,6 +1,13 @@
 Changelog
 ===========
 
+Unreleased
+----------
+
+- Fixed `treynor_ratio()` to subtract the annual risk-free rate from the
+  annualized geometric return, rather than the whole-sample compounded return.
+  The `periods` argument now controls return annualization.
+
 0.0.86
 ------
 

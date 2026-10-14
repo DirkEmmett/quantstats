@@ -396,14 +396,85 @@ class TestBenchmarkGaps:
 
         assert stats.r_squared(gapped, bench) == pytest.approx(expected)
 
-    def test_treynor_survives_gaps(self):
+    def test_treynor_uses_observed_returns_and_pairwise_beta(self):
         _, gapped, bench = self._data()
+        periods = 252
+        rf = 0.02
+        paired = pd.DataFrame({"r": gapped, "b": bench}).dropna()
+        matrix = np.cov(paired["r"], paired["b"])
+        beta = matrix[0, 1] / matrix[1, 1]
+        observed = gapped.dropna()
+        annual_return = (1 + observed).prod() ** (periods / len(observed)) - 1
 
-        treynor_gap = stats.treynor_ratio(gapped, bench)
+        result = stats.treynor_ratio(gapped, bench, periods=periods, rf=rf)
 
-        assert np.isfinite(treynor_gap)
-        # 0.0.83 returned the beta-is-zero fallback here.
-        assert treynor_gap != 0.0
+        assert result == pytest.approx((annual_return - rf) / beta)
+
+
+class TestTreynorAnnualization:
+    """Treynor compares annual geometric returns with the annual risk-free rate."""
+
+    @pytest.mark.parametrize("years", [1, 2])
+    def test_repeating_annual_path_preserves_ratio(self, years):
+        idx = pd.date_range("2020-01-01", periods=2 * years, freq="D")
+        returns = pd.Series([-0.08, 0.12] * years, index=idx)
+        benchmark = pd.Series([-0.1, 0.1] * years, index=idx)
+
+        result = stats.treynor_ratio(returns, benchmark, periods=2, rf=0.01)
+
+        assert result == pytest.approx(0.0204)
+
+    def test_fractional_year_with_custom_periods_and_negative_beta(self):
+        idx = pd.date_range("2020-01-01", periods=3, freq="D")
+        returns = pd.Series([0.12, -0.08, 0.04], index=idx)
+        benchmark = pd.Series([-0.1, 0.1, -0.02], index=idx)
+        expected = ((1.12 * 0.92 * 1.04) ** (4 / 3) - 1 - 0.03) / -1
+
+        result = stats.treynor_ratio(returns, benchmark, periods=4, rf=0.03)
+
+        assert result == pytest.approx(expected)
+
+    def test_dataframe_uses_first_column(self):
+        idx = pd.date_range("2020-01-01", periods=4, freq="D")
+        returns = pd.DataFrame(
+            {"strategy": [-0.08, 0.12] * 2, "other": [-0.3, 0.4] * 2},
+            index=idx,
+        )
+        benchmark = pd.Series([-0.1, 0.1] * 2, index=idx)
+
+        result = stats.treynor_ratio(returns, benchmark, periods=2, rf=0.01)
+
+        assert result == pytest.approx(0.0204)
+
+    @pytest.mark.parametrize(
+        "idx",
+        [
+            pd.period_range("2020-01", periods=4, freq="M"),
+            pd.Index(["first", "second", "third", "fourth"]),
+        ],
+        ids=["monthly_periods", "string_labels"],
+    )
+    def test_index_labels_do_not_affect_annualization_or_mutate_inputs(self, idx):
+        returns = pd.Series([-0.08, 0.12] * 2, index=idx)
+        benchmark = pd.Series([-0.1, 0.1] * 2, index=idx)
+        original_returns = returns.copy(deep=True)
+        original_benchmark = benchmark.copy(deep=True)
+
+        result = stats.treynor_ratio(returns, benchmark, periods=2, rf=0.01)
+
+        assert result == pytest.approx(0.0204)
+        pd.testing.assert_series_equal(returns, original_returns)
+        pd.testing.assert_series_equal(benchmark, original_benchmark)
+
+    def test_zero_beta_preserves_warning_and_zero_result(self):
+        idx = pd.date_range("2020-01-01", periods=4, freq="D")
+        returns = pd.Series([-0.08, 0.12] * 2, index=idx)
+        benchmark = pd.Series(0.1, index=idx)
+
+        with pytest.warns(UserWarning, match="Beta is zero"):
+            result = stats.treynor_ratio(returns, benchmark, periods=2, rf=0.01)
+
+        assert result == 0
 
 
 class TestRiskFreeDeannualization:

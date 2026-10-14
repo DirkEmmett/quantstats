@@ -1471,8 +1471,9 @@ def treynor_ratio(returns, benchmark, periods=252.0, rf=0.0):
     Calculate the Treynor ratio.
 
     The Treynor ratio measures risk-adjusted returns relative to systematic risk
-    (beta) rather than total risk (volatility). It's calculated as excess return
-    divided by beta, useful for comparing portfolios with different market exposure.
+    (beta) rather than total risk (volatility). It divides annualized geometric
+    return less the annual risk-free rate by beta. The periods parameter controls
+    return annualization.
 
     Args:
         returns (pd.Series): Return series to analyze
@@ -1501,8 +1502,9 @@ def treynor_ratio(returns, benchmark, periods=252.0, rf=0.0):
         warn("Beta is zero, cannot calculate Treynor ratio, returning 0")
         return 0
 
-    # Calculate excess return over risk-free rate divided by beta
-    return (comp(returns) - rf) / beta
+    # Annualization uses observed values and their count, not index labels.
+    annual_return = cagr(_pd.Series(returns.array, copy=False), periods=periods)
+    return (annual_return - rf) / beta
 
 
 def omega(
